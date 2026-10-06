@@ -2,20 +2,9 @@
 
 Aplicación web local para incorporar programaciones, conservar cada original, revisar extracciones de texto y publicar de forma controlada la versión que podrá consultar un sistema RAG. El envío crea una versión pendiente; solo un revisor puede aprobarla, comprobar la extracción y publicarla. El prototipo no determina validez administrativa ni sustituye el procedimiento del centro.
 
-## Qué incluye
+## Qué hace la aplicación
 
-- Inicio de sesión local con roles de colaborador, revisor y administrador.
-- Alta de programaciones PDF, DOCX y TXT con metadatos de centro, módulo, curso académico, título, procedencia y estado declarado.
-- Validación en servidor del tamaño y estructura básica del archivo, almacenamiento del original con nombre interno y cálculo de SHA-256.
-- Detección de copia exacta. Si se repiten los mismos bytes, se registra la procedencia del intento y no se crea una extracción o versión duplicada.
-- Aviso de posible actualización cuando coinciden centro, módulo y curso. El colaborador declara una relación propuesta y un revisor decide.
-- Flujo de estados Pendiente → Aprobada → En preparación → Lista para publicar → Publicada. También permite devolver, rechazar, sustituir y retirar con motivo.
-- Extracción inspeccionable: páginas PDF, párrafos/tablas DOCX o líneas TXT; fragmentación con localizador y huella de contenido.
-- Publicación transaccional: al activar una nueva versión, la anterior pasa a histórica en la misma transacción SQLite.
-- Separación de funciones: una persona no puede aprobar, verificar ni publicar su propia carga.
-- Catálogo, filtros, descarga autenticada del original, historial de revisiones y auditoría de eventos relevantes.
-- API de solo lectura para PIA, protegida con un token Bearer y limitada a fragmentos publicados y vigentes.
-- Copia ZIP de la base de datos y los originales; restauración únicamente en una ubicación separada.
+El gestor lleva una programación desde la recepción del archivo hasta su disponibilidad como texto recuperable por el proyecto PIA. Conserva el original y la trazabilidad de cada decisión; la extracción y la publicación requieren revisión humana. El flujo completo se detalla más adelante, desde la carga hasta la entrega de fragmentos a PIA.
 
 ## Arquitectura elegida
 
@@ -29,8 +18,10 @@ flowchart LR
   F --> FS[(Disco local: originales inalterados)]
   F --> X[Extractor y fragmentador]
   X --> DB
-  PIA[Cliente PIA / RAG] --> API[API de fragmentos publicados]
+  PIA[Ingestor o consumidor PIA<br/>fase posterior] -.consulta y recibe chunks.-> API[API protegida de fragmentos publicados]
   API --> DB
+  PIA --> EMB[Modelo de embeddings<br/>no incluido en este gestor]
+  EMB --> CH[(ChromaDB<br/>no incluido en este gestor)]
 ```
 
 ### Tecnologías
@@ -184,19 +175,47 @@ Una programación (`documents`) puede tener varias versiones; cada versión apun
 
 El original no se modifica durante la extracción. Documento lógico, versión, archivo, extracción y fragmentos se guardan por separado y se relacionan mediante claves foráneas. El texto y los fragmentos se conservan en SQLite para poder revisar la evidencia y consultar únicamente los fragmentos de la extracción más reciente de la versión vigente.
 
-## Reglas de admisión y ciclo de vida
+## Flujo de trabajo: del original al corpus disponible
 
-1. El colaborador completa los metadatos y selecciona un PDF, DOCX o TXT. Los campos obligatorios se validan en el navegador para ayudar y se vuelven a validar en el servidor.
-2. El servidor comprueba extensión y firma/estructura básica, tamaño, lectura UTF-8 cuando corresponda y calcula SHA-256. La extensión sola no se considera prueba suficiente del formato.
-3. Si ya existe el mismo SHA-256, la aplicación registra el intento como procedencia adicional y muestra la ficha existente; no duplica versiones ni fragmentos.
-4. Si coincide centro + módulo + curso, la interfaz solicita indicar qué programación existente se relaciona y el motivo. Esa coincidencia es una posible actualización; no demuestra que ambos documentos deban fusionarse.
-5. El original queda en estado **Pendiente**. Un revisor puede aprobarlo para procesar, devolverlo o rechazarlo con motivo. Un archivo declarado borrador no puede publicarse.
-6. Tras aprobar, el revisor solicita la extracción. Si falla o no hay texto, se conserva el original y se informa del error; no se crean fragmentos publicables.
-7. El revisor inspecciona la vista previa y confirma que la extracción es utilizable. Solo entonces la versión pasa a **Lista para publicar**.
-8. Al publicar una revisión, una transacción SQLite activa la nueva y marca como sustituida la anterior. Un fallo en la operación deja la versión anterior vigente.
-9. Retirar una versión la excluye de nuevas consultas, conservando el historial.
+### 1. Recepción, metadatos y validación
 
-SHA-256 identifica coincidencia exacta de bytes; no cifra, no acredita autoría y no prueba aprobación oficial. Una coincidencia de identidad lógica o de texto requiere revisión humana.
+El colaborador adjunta un PDF, DOCX o TXT y completa centro, módulo, curso académico, título, procedencia y estado declarado. La interfaz hace comprobaciones básicas para ayudar, y el servidor vuelve a validar los datos, el tamaño máximo de 20 MB y la firma o estructura esperada del archivo. Para TXT también comprueba que el contenido sea UTF-8. El archivo se conserva sin modificar, con una ruta interna generada por el sistema; su nombre original y su SHA-256 quedan en la ficha.
+
+El SHA-256 sirve para detectar una copia exacta de los mismos bytes. Si coincide con un archivo ya cargado, el gestor registra quién volvió a presentarlo y su procedencia, y muestra la ficha existente en lugar de crear otra versión. Si ya existe una programación para el mismo centro, módulo y curso, el gestor lo presenta como posible relación: el colaborador debe proponer si es una revisión, un complemento o una relación todavía no determinada, y explicar el motivo. Esa coincidencia no decide automáticamente que los documentos sean equivalentes.
+
+### 2. Extracción de texto y creación de chunks
+
+Después de la aprobación inicial de un revisor, el sistema extrae texto del original. El original permanece intacto. Cada ejecución queda registrada en `extractions` con el extractor, el resultado, el posible error, el texto normalizado y su huella SHA-256. Si la lectura falla o no se obtiene texto —por ejemplo, en un PDF escaneado sin capa de texto— se conserva el archivo original, se muestra el error y no se ofrecen fragmentos publicables.
+
+La lectura depende del formato:
+
+- **PDF:** extrae el texto página a página con pypdf y conserva el número de página como localizador.
+- **DOCX:** reúne el texto de los párrafos y las tablas en un bloque con localizador `documento`.
+- **TXT:** lee UTF-8 y organiza el contenido en bloques de hasta 80 líneas, indicando el rango de líneas.
+
+Antes de fragmentar, elimina caracteres nulos, reduce secuencias de espacios y tabuladores, y limita los saltos de línea repetidos. Después aplica una fragmentación sencilla, de tamaño fijo por caracteres:
+
+- Tamaño máximo por chunk: **1.000 caracteres**.
+- Solapamiento entre chunks consecutivos: **150 caracteres**.
+- El siguiente bloque empieza 850 caracteres después del anterior. Por ejemplo, el primero abarca los caracteres 1–1.000 y el segundo empieza en el 851.
+- La fragmentación se hace dentro de cada página PDF o bloque TXT; no cruza esos límites. DOCX se trata como un único bloque.
+- Cada chunk guarda el localizador de origen y un SHA-256 de su texto. Si excede el tamaño, el localizador incluye también el rango aproximado de caracteres.
+
+El tamaño se mide en **caracteres, no en tokens**, y los cortes no intentan detectar frases, apartados ni encabezados. Es una estrategia básica y transparente para el prototipo; puede separar una idea entre dos chunks. El solapamiento ayuda a conservar contexto en los bordes, aunque repite parte del texto. Los chunks se guardan en SQLite y quedan vinculados a una extracción concreta, por lo que las ejecuciones anteriores se conservan para trazabilidad.
+
+### 3. Revisión y publicación humana
+
+La versión recorre los estados **Pendiente → Aprobada → En preparación → Lista para publicar → Publicada**. Un revisor distinto de quien subió el archivo aprueba la carga, inspecciona la extracción y confirma si el texto sirve como evidencia. Puede devolverla o rechazarla con un motivo. Una programación declarada como borrador no se puede publicar.
+
+Al publicar una nueva revisión, una transacción SQLite activa la nueva versión y marca la anterior como sustituida; así no se exponen simultáneamente ambas como vigentes. Retirar una versión la excluye de futuras consultas y conserva el historial. El sistema registra las decisiones y eventos relevantes.
+
+### 4. Entrega de fragmentos a PIA
+
+La ruta protegida `GET /api/rag/chunks` entrega a PIA únicamente chunks de una versión publicada y vigente cuya extracción más reciente haya terminado correctamente. La consulta requiere el token Bearer configurado y filtra por módulo y curso académico; también admite centro como filtro opcional. Cada resultado incluye identificadores de fragmento, documento y versión, categoría, módulo, curso, localizador, texto, huella del chunk, estado de publicación, título, nombre original y procedencia. Aunque se puede filtrar por centro, el campo `center` todavía no se incluye en cada resultado. `source_uri` es un identificador lógico local, no un enlace de descarga.
+
+Esta API sirve el texto y sus metadatos para el siguiente componente. **El gestor no calcula embeddings, no persiste vectores y no escribe en ChromaDB**; esas tareas corresponderían al proceso de ingesta/recuperación de PIA. Al sincronizar una versión nueva, ese proceso tendría que sustituir o retirar de su índice los vectores asociados a versiones antiguas.
+
+SHA-256 identifica coincidencia exacta de bytes o texto; no cifra, no acredita autoría y no prueba aprobación oficial. Una coincidencia de identidad lógica o la equivalencia semántica de dos documentos requiere revisión humana.
 
 ## Roles
 
@@ -286,7 +305,7 @@ GET /api/rag/chunks?module=SBD&academic_year=2026-27
 Authorization: Bearer <RAG_API_TOKEN>
 ```
 
-Cada resultado incluye `fragment_id`, `document_id`, `version_id`, `category`, `module`, `academic_year`, `source_uri`, `locator`, `text`, `publication_status`, `content_hash`, el título y la procedencia. El `source_uri` es un identificador lógico local, no una ruta que permita descargar archivos. El contrato nunca devuelve versiones pendientes, retiradas o sustituidas.
+La respuesta es JSON con `items`, `count` y `scope`; el contenido de cada elemento y sus restricciones de vigencia se describen en el paso 4 del flujo de trabajo. Puede añadirse `center=IES%20Ataulfo%20Argenta` como filtro opcional. La ruta responde con `503` si falta configurar el token, `401` si el token enviado no coincide y `400` si falta módulo o curso académico.
 
 Para configurar el token, añade `RAG_API_TOKEN=<secreto-aleatorio>` a `.env` y reinicia el servidor. La interfaz del prototipo no expone este token.
 
