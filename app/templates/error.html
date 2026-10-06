@@ -1,0 +1,3 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · Gestor DocIA+{% endblock %}
+{% block content %}<section class="error-page"><p class="eyebrow">Gestor DocIA+</p><h1>{{ title }}</h1><p>{{ message }}</p>{% if g.user %}<a class="button primary" href="{{ url_for('documents.catalog') }}">Volver al catálogo</a>{% else %}<a class="button primary" href="{{ url_for('auth.login') }}">Ir al acceso</a>{% endif %}</section>{% endblock %}

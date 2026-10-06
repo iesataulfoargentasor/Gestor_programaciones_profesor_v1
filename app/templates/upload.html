@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Añadir programación · Gestor DocIA+{% endblock %}
+{% block content %}
+<p class="eyebrow">Ingesta controlada</p><h1>Añadir una programación</h1>
+<div class="notice"><strong>Importante:</strong> enviar el documento solo lo deja <em>Pendiente</em>. No confirma su validez administrativa ni lo publica en el RAG.</div>
+<form class="form-card" method="post" enctype="multipart/form-data" action="{{ url_for('documents.upload') }}">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<div class="form-grid">
+  <div><label for="file">Archivo original <span class="required">(obligatorio)</span></label><input id="file" name="file" type="file" accept=".pdf,.docx,.txt" required aria-describedby="file-help file-error"><p id="file-help" class="help">PDF, DOCX o TXT · Máximo {{ max_file_mb }} MB. El archivo no se ejecuta en el servidor.</p>{% if errors.file %}<p id="file-error" class="field-error">{{ errors.file }}</p>{% endif %}</div>
+  {% for key,label,maxlen in [('center','Centro',120),('module','Módulo',80),('academic_year','Curso académico',20),('title','Título de la programación',200),('source','Procedencia del documento',250)] %}
+  <div><label for="{{ key }}">{{ label }} <span class="required">(obligatorio)</span></label><input id="{{ key }}" name="{{ key }}" value="{{ form.get(key, '') }}" maxlength="{{ maxlen }}" required aria-describedby="{{ key }}-help {{ key }}-error">{% if key=='academic_year' %}<p id="{{ key }}-help" class="help">Por ejemplo: 2026-27</p>{% else %}<span id="{{ key }}-help" class="visually-hidden"></span>{% endif %}{% if errors.get(key) %}<p id="{{ key }}-error" class="field-error">{{ errors[key] }}</p>{% endif %}</div>
+  {% endfor %}
+  <div><label for="declared_status">Estado declarado <span class="required">(obligatorio)</span></label><select id="declared_status" name="declared_status" required><option value="">Selecciona…</option>{% for key,label in [('aprobada','Aprobada, pendiente de revisión docente'),('borrador','Borrador'),('no_confirmada','No confirmado')] %}<option value="{{ key }}" {% if form.get('declared_status')==key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>{% if errors.get('declared_status') %}<p class="field-error">{{ errors.declared_status }}</p>{% endif %}<p class="help">Una programación declarada como borrador no se podrá publicar.</p></div>
+  <div><label for="declared_version">Versión indicada en el documento</label><input id="declared_version" name="declared_version" value="{{ form.get('declared_version','') }}" maxlength="40" placeholder="Ej. revisión de septiembre"></div>
+  <fieldset class="relation-box"><legend>Relación con una programación existente</legend><p class="help">Si ya existe la misma combinación de centro, módulo y curso, elige su ficha y explica si esta carga es una revisión o un complemento. Si no lo sabes, selecciona «por determinar».</p>
+    <label for="relation_target">Programación lógica</label><select id="relation_target" name="relation_target"><option value="">No corresponde a una ficha existente</option>{% for item in logical_docs %}<option value="{{ item.id }}" {% if form.get('relation_target')==item.id %}selected{% endif %}>{{ item.center }} · {{ item.module }} · {{ item.academic_year }} · {{ item.title }}</option>{% endfor %}</select>
+    <label for="relation_type">Relación propuesta</label><select id="relation_type" name="relation_type"><option value="">Sin relación / nueva programación</option>{% for key,label in [('revision','Nueva revisión que puede sustituir a la vigente'),('complemento','Documento complementario'),('diferente','Relación por determinar; requiere revisión')] %}<option value="{{ key }}" {% if form.get('relation_type')==key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    <label for="relation_reason">Motivo o contexto de la relación</label><textarea id="relation_reason" name="relation_reason" rows="3" maxlength="500">{{ form.get('relation_reason','') }}</textarea>{% if errors.get('relation_target') %}<p class="field-error">{{ errors.relation_target }}</p>{% endif %}{% if errors.get('relation_type') %}<p class="field-error">{{ errors.relation_type }}</p>{% endif %}{% if errors.get('relation_reason') %}<p class="field-error">{{ errors.relation_reason }}</p>{% endif %}
+  </fieldset>
+</div>
+<div class="actions"><button class="primary" type="submit">Enviar a revisión</button><a class="button secondary" href="{{ url_for('documents.catalog') }}">Cancelar</a></div>
+</form>
+<p class="muted small">La huella SHA-256 se calcula en el servidor. Detecta coincidencias exactas, pero no demuestra quién aprobó el documento ni que sea oficial.</p>
+{% endblock %}

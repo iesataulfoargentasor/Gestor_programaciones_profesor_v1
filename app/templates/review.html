@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Bandeja de revisión · Gestor DocIA+{% endblock %}
+{% block content %}
+<p class="eyebrow">Trabajo del revisor</p><h1>Bandeja de revisión</h1><p>Aprueba los documentos adecuados, procesa su texto y revisa los fragmentos antes de publicarlos.</p>
+<form class="filter-panel" method="get">
+  <div><label for="module">Módulo</label><input id="module" name="module" value="{{ filters.module }}"></div>
+  <div><label for="academic_year">Curso académico</label><input id="academic_year" name="academic_year" value="{{ filters.academic_year }}"></div>
+  <div><label for="status">Estado</label><select id="status" name="status"><option value="">Todos</option>{% for key,label in [('pending','Pendiente'),('approved','Aprobada'),('in_preparation','En preparación'),('pending_error','Error de extracción'),('ready','Lista para publicar')] %}<option value="{{ key }}" {% if filters.status==key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div><button class="secondary" type="submit">Filtrar</button>
+</form>
+<div class="table-wrap"><table><caption class="visually-hidden">Versiones pendientes de revisión</caption><thead><tr><th scope="col">Programación</th><th scope="col">Versión / archivo</th><th scope="col">Estado técnico</th><th scope="col">Colaborador</th><th scope="col">Acción</th></tr></thead><tbody>
+{% for item in items %}<tr><td>{{ item.document_title }}<span class="subline">{{ item.center }} · {{ item.module }} · {{ item.academic_year }}</span></td><td>v{{ item.version_no }} · {{ item.original_name }}<span class="subline">{{ item.created_at }}</span></td><td><span class="status status-{{ item.status }}">{{ {'pending':'Pendiente','approved':'Aprobada','in_preparation':'En preparación','pending_error':'Error de extracción','ready':'Lista para publicar'}.get(item.status, item.status) }}</span>{% if item.extraction_error %}<span class="subline">{{ item.extraction_error }}</span>{% endif %}</td><td>{{ item.uploader }}</td><td><a href="{{ url_for('documents.detail', document_id=item.document_id) }}#version-{{ item.id }}">Revisar</a></td></tr>{% else %}<tr><td colspan="5" class="empty">No hay versiones pendientes con estos filtros.</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

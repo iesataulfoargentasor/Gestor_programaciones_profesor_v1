@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Gestor local de programaciones didácticas para preparar un corpus documental revisado para DocIA+.">
+  <title>{% block title %}Gestor DocIA+{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+<a class="skip-link" href="#contenido">Saltar al contenido</a>
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="{{ url_for('documents.catalog') if g.user else url_for('auth.login') }}">DocIA+ <span>Gestor de programaciones</span></a>
+    {% if g.user %}
+    <nav aria-label="Navegación principal">
+      <a href="{{ url_for('documents.catalog') }}">Catálogo</a>
+      {% if has_permission('upload') %}<a href="{{ url_for('documents.upload') }}">Añadir documento</a>{% endif %}
+      {% if has_permission('review') %}<a href="{{ url_for('documents.review_queue') }}">Revisión</a>{% endif %}
+    </nav>
+    <div class="account">{{ g.user['username'] }} · {{ {'collaborator':'Colaborador','reviewer':'Revisor','admin':'Administrador'}.get(g.user['role'], g.user['role']) }}
+      <form action="{{ url_for('auth.logout') }}" method="post" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="link-button" type="submit">Cerrar sesión</button></form>
+    </div>
+    {% endif %}
+  </div>
+</header>
+<main id="contenido" class="container">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}<div class="messages" aria-live="polite">{% for category, message in messages %}<div class="message {{ category }}" role="status"><strong>{{ {'success':'Correcto','warning':'Aviso','error':'Revisa esto'}.get(category, 'Información') }}:</strong> {{ message }}</div>{% endfor %}</div>{% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="site-footer"><div class="container">{{ center_name }} · Prototipo didáctico DocIA+ · La publicación requiere revisión humana.</div></footer>
+</body>
+</html>

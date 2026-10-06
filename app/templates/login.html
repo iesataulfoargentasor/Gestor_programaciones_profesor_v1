@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Acceso · Gestor DocIA+{% endblock %}
+{% block content %}
+<section class="login-card" aria-labelledby="login-title">
+  <p class="eyebrow">Corpus de programaciones</p>
+  <h1 id="login-title">Iniciar sesión</h1>
+  <p>Utiliza la cuenta local que te haya creado el administrador del prototipo.</p>
+  <form method="post" action="{{ url_for('auth.login') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="username">Usuario</label><input id="username" name="username" autocomplete="username" required maxlength="80">
+    <label for="password">Contraseña</label><input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button class="primary" type="submit">Entrar</button>
+  </form>
+  <p class="muted small">Las cuentas de este prototipo no están conectadas a la identidad institucional.</p>
+</section>
+{% endblock %}
